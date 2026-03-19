@@ -19,9 +19,13 @@ export default function OrderingMenu() {
 
   useEffect(() => {
     async function fetchMenu() {
+      let outOfStockIds = new Set<string>();
+
       try {
-        const { data: invData } = await supabase.from('inventory').select('*');
-        const outOfStockIds = new Set(invData?.filter((r: any) => r.in_stock === false).map((r: any) => r.item_id) || []);
+        const { data: invData, error: invError } = await supabase.from('inventory').select('*');
+        if (!invError && invData) {
+          outOfStockIds = new Set(invData.filter((r: any) => r.in_stock === false).map((r: any) => r.item_id));
+        }
 
         const { data, error } = await supabase
           .from('menu_items')
@@ -29,22 +33,18 @@ export default function OrderingMenu() {
           .eq('is_available', true);
 
         if (error) {
-          console.warn('Falling back to local menu fallback...');
+          console.warn('menu_items table missing or error. Falling back...');
           throw error;
         }
 
         if (data && data.length > 0) {
-          // Filter out out-of-stock items dynamically
           const availableData = data.filter((item: any) => {
             const id = item.name.toLowerCase().replace(/\s+/g, '-');
             return !outOfStockIds.has(id);
           });
 
-          // Group by category
           const grouped = availableData.reduce((acc: any, item: any) => {
-            if (!acc[item.category]) {
-              acc[item.category] = [];
-            }
+            if (!acc[item.category]) acc[item.category] = [];
             acc[item.category].push(item);
             return acc;
           }, {});
@@ -53,11 +53,10 @@ export default function OrderingMenu() {
             category: cat,
             items: grouped[cat]
           }));
-
           setCategories(formattedCategories);
           setSelectedCategory(formattedCategories[0]?.category || '');
         } else {
-          // Robust Local Fallback when Supabase database is empty or unseeded
+          // Empty Supabase DB Fallback
           const fallbackCategories = menuData.map(cat => ({
             category: cat.title,
             items: cat.items.filter((item: any) => {
@@ -72,15 +71,20 @@ export default function OrderingMenu() {
               is_veg: true, 
               category: cat.title
             }))
-          }));
+          })).filter(cat => cat.items.length > 0);
+          
           setCategories(fallbackCategories);
           setSelectedCategory(fallbackCategories[0]?.category || '');
         }
       } catch (err) {
-        console.error('Error fetching menu. Falling back to local data.', err);
+        console.error('Error fetching menu. Engaging bulletproof fallback.', err);
+        // Error-State Fallback
         const fallbackCategories = menuData.map((cat: any) => ({
             category: cat.title,
-            items: cat.items.map((item: any) => ({
+            items: cat.items.filter((item: any) => {
+               const id = item.name.toLowerCase().replace(/\s+/g, '-');
+               return !outOfStockIds.has(id);
+            }).map((item: any) => ({
               id: item.name.toLowerCase().replace(/\s+/g, '-'),
               name: item.name,
               price: item.price,
@@ -89,7 +93,8 @@ export default function OrderingMenu() {
               is_veg: true,
               category: cat.title
             }))
-        }));
+        })).filter((cat: any) => cat.items.length > 0);
+        
         setCategories(fallbackCategories);
         setSelectedCategory(fallbackCategories[0]?.category || '');
       } finally {
