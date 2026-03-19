@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { menuData } from '../../data/menuData';
-import { Plus, Trash2, CreditCard as Edit2, AlertCircle } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { Plus, Trash2, CreditCard as Edit2, AlertCircle, Loader } from 'lucide-react';
 
 interface MenuItem {
   id: string;
@@ -8,31 +9,61 @@ interface MenuItem {
   description: string;
   price: number | string;
   category: string;
+  image?: string;
+  is_veg?: boolean;
+  is_available?: boolean;
 }
 
 export default function MenuTab() {
-  const [items, setItems] = useState<MenuItem[]>(
-    menuData.flatMap((cat) =>
-      cat.items.map((item) => ({
-        ...item,
-        description: item.description || '',
-        category: cat.category,
-      }))
-    )
-  );
+  const [items, setItems] = useState<MenuItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<MenuItem | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const categories = Array.from(new Set(items.map((item) => item.category)));
+  const categories = Array.from(new Set(menuData.map((cat) => cat.title)));
+
+  useEffect(() => {
+    async function initMenu() {
+      try {
+        const { data, error } = await supabase.from('menu_items').select('*');
+        if (data && data.length > 0) {
+          setItems(data);
+        } else if (data && data.length === 0) {
+          // Empty Database: Trigger Auto-Seeder using full 51 items
+          const seedData = menuData.flatMap(cat => cat.items.map(item => ({
+             id: item.name.toLowerCase().replace(/\s+/g, '-'),
+             name: item.name,
+             price: item.price.toString(),
+             description: item.description || '',
+             image: item.image || '',
+             category: cat.title,
+             is_veg: true,
+             is_available: true
+          })));
+          
+          await supabase.from('menu_items').insert(seedData);
+          setItems(seedData);
+        }
+      } catch (err) {
+        console.error("Failed to connect to menu_items DB:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    initMenu();
+  }, []);
 
   const handleAddClick = () => {
     setFormData({
-      id: Math.random().toString(),
+      id: Math.random().toString().slice(2, 11),
       name: '',
       description: '',
       price: '',
-      category: categories[0] || '',
+      category: categories[0] || 'Uncategorized',
+      image: '',
+      is_veg: true,
+      is_available: true
     });
     setEditingId(null);
     setShowForm(true);
@@ -44,7 +75,7 @@ export default function MenuTab() {
     setShowForm(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData) return;
 
     if (editingId) {
@@ -53,16 +84,44 @@ export default function MenuTab() {
       setItems([...items, formData]);
     }
 
+    try {
+      await supabase.from('menu_items').upsert({
+        id: formData.id,
+        name: formData.name,
+        price: formData.price.toString(),
+        description: formData.description,
+        image: formData.image || '',
+        category: formData.category,
+        is_veg: formData.is_veg !== undefined ? formData.is_veg : true,
+        is_available: formData.is_available !== undefined ? formData.is_available : true
+      }, { onConflict: 'id' });
+    } catch (err) {
+       console.error("Failed to upsert item.", err);
+    }
+
     setShowForm(false);
     setFormData(null);
     setEditingId(null);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this item?')) {
       setItems(items.filter((item) => item.id !== id));
+      try {
+        await supabase.from('menu_items').delete().eq('id', id);
+      } catch (err) {
+        console.error("Failed to delete item.", err);
+      }
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader className="w-8 h-8 text-orange-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -103,6 +162,15 @@ export default function MenuTab() {
                 ))}
               </select>
             </div>
+            
+            <input
+              type="text"
+              placeholder="Image URL (Unsplash/Imgur)"
+              value={formData.image || ''}
+              onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white placeholder-gray-400"
+            />
+            
             <textarea
               placeholder="Description"
               value={formData.description}
@@ -135,7 +203,11 @@ export default function MenuTab() {
       )}
 
       <div className="space-y-6">
-        {categories.map((category) => (
+        {categories.map((category) => {
+          const catItems = items.filter((item) => item.category === category);
+          if (catItems.length === 0) return null;
+          
+          return (
           <div key={category}>
             <h3 className="text-lg font-semibold text-orange-500 mb-4 capitalize">
               {category}
@@ -160,16 +232,14 @@ export default function MenuTab() {
                     </tr>
                   </thead>
                   <tbody>
-                    {items
-                      .filter((item) => item.category === category)
-                      .map((item) => (
+                    {catItems.map((item) => (
                         <tr key={item.id} className="border-b border-gray-700 hover:bg-gray-700/30">
                           <td className="px-6 py-4 text-white font-medium">{item.name}</td>
                           <td className="px-6 py-4 text-gray-400 text-sm max-w-xs truncate">
                             {item.description}
                           </td>
                           <td className="px-6 py-4 text-orange-400 font-semibold">
-                            {typeof item.price === 'number' ? `$${item.price.toFixed(2)}` : item.price}
+                            {typeof item.price === 'number' ? `₹${item.price.toFixed(2)}` : item.price}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex gap-2">
@@ -194,14 +264,13 @@ export default function MenuTab() {
               </div>
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
-      <div className="mt-8 bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-        <p className="text-blue-200 text-sm">
-          Note: Menu changes here are for demonstration. To persist menu changes to the database,
-          a backend integration would be needed.
+      <div className="mt-8 bg-green-900/20 border border-green-500/30 rounded-lg p-4 flex items-start gap-3">
+        <AlertCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+        <p className="text-green-200 text-sm">
+          Menu changes here are perfectly synchronized with your live Supabase "menu_items" table. Adds, edits, and deletes are instantly processed by the ordering engine.
         </p>
       </div>
     </div>

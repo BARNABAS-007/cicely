@@ -14,8 +14,6 @@ export default function LiveInventoryTab() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [unsavedChanges, setUnsavedChanges] = useState<Record<string, boolean>>({});
-  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     async function loadInventory() {
@@ -50,30 +48,20 @@ export default function LiveInventoryTab() {
     loadInventory();
   }, []);
 
-  const toggleStock = (itemId: string, currentStock: boolean) => {
+  const toggleStock = async (itemId: string, currentStock: boolean) => {
     const newStock = !currentStock;
     // Optimistic update
     setItems(items.map(item => item.id === itemId ? { ...item, in_stock: newStock } : item));
-    setUnsavedChanges(prev => ({ ...prev, [itemId]: newStock }));
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    const updates = Object.entries(unsavedChanges).map(([itemId, inStock]) => ({
-      item_id: itemId,
-      in_stock: inStock,
-      updated_at: new Date().toISOString()
-    }));
     
     try {
-      if (updates.length > 0) {
-        await supabase.from('inventory').upsert(updates, { onConflict: 'item_id' });
-        setUnsavedChanges({});
-      }
+      await supabase.from('inventory').upsert({
+        item_id: itemId,
+        in_stock: newStock,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'item_id' });
     } catch (err) {
       console.error("Failed to persist to Supabase:", err);
     }
-    setIsSaving(false);
   };
 
   const filteredItems = items.filter(item => 
@@ -86,18 +74,8 @@ export default function LiveInventoryTab() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-bold text-white tracking-tight">Live Inventory</h2>
-          <p className="text-gray-400 text-sm mt-1">Control stock status for Menu Items</p>
+          <p className="text-gray-400 text-sm mt-1">Control stock status for Menu Items instantly.</p>
         </div>
-        {Object.keys(unsavedChanges).length > 0 && (
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg font-bold transition flex items-center gap-2 animate-in fade-in"
-          >
-            {isSaving ? <Loader className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
-            Save Changes ({Object.keys(unsavedChanges).length})
-          </button>
-        )}
       </div>
 
       <div className="bg-gray-800 rounded-xl p-4 flex gap-4 border border-gray-700">
