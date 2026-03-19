@@ -6,7 +6,7 @@ interface MenuItem {
   id: string;
   name: string;
   description: string;
-  price: number;
+  price: number | string;
   category: string;
 }
 
@@ -15,6 +15,7 @@ export default function MenuTab() {
     menuData.flatMap((cat) =>
       cat.items.map((item) => ({
         ...item,
+        description: item.description || '',
         category: cat.category,
       }))
     )
@@ -30,7 +31,7 @@ export default function MenuTab() {
       id: Math.random().toString(),
       name: '',
       description: '',
-      price: 0,
+      price: '',
       category: categories[0] || '',
     });
     setEditingId(null);
@@ -109,11 +110,10 @@ export default function MenuTab() {
               className="w-full bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white placeholder-gray-400 h-24"
             />
             <input
-              type="number"
-              placeholder="Price"
-              step="0.01"
+              type="text"
+              placeholder="Price (e.g., ₹159 or ₹299 / ₹349)"
               value={formData.price}
-              onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) })}
+              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
               className="bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white placeholder-gray-400"
             />
             <div className="flex gap-2">
@@ -169,7 +169,7 @@ export default function MenuTab() {
                             {item.description}
                           </td>
                           <td className="px-6 py-4 text-orange-400 font-semibold">
-                            ${item.price.toFixed(2)}
+                            {typeof item.price === 'number' ? `$${item.price.toFixed(2)}` : item.price}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex gap-2">
