@@ -39,8 +39,7 @@ export default function OrderingMenu() {
 
         if (data && data.length > 0) {
           const availableData = data.filter((item: any) => {
-            const id = item.name.toLowerCase().replace(/\s+/g, '-');
-            return !outOfStockIds.has(id);
+            return !outOfStockIds.has(item.id);
           });
 
           const grouped = availableData.reduce((acc: any, item: any) => {
