@@ -20,18 +20,28 @@ export default function OrderingMenu() {
   useEffect(() => {
     async function fetchMenu() {
       try {
+        const { data: invData } = await supabase.from('inventory').select('*');
+        const outOfStockIds = new Set(invData?.filter((r: any) => r.in_stock === false).map((r: any) => r.item_id) || []);
+
         const { data, error } = await supabase
           .from('menu_items')
           .select('*')
           .eq('is_available', true);
 
         if (error) {
+          console.warn('Falling back to local menu fallback...');
           throw error;
         }
 
         if (data && data.length > 0) {
+          // Filter out out-of-stock items dynamically
+          const availableData = data.filter((item: any) => {
+            const id = item.name.toLowerCase().replace(/\s+/g, '-');
+            return !outOfStockIds.has(id);
+          });
+
           // Group by category
-          const grouped = data.reduce((acc: any, item: any) => {
+          const grouped = availableData.reduce((acc: any, item: any) => {
             if (!acc[item.category]) {
               acc[item.category] = [];
             }
@@ -50,12 +60,16 @@ export default function OrderingMenu() {
           // Robust Local Fallback when Supabase database is empty or unseeded
           const fallbackCategories = menuData.map(cat => ({
             category: cat.title,
-            items: cat.items.map(item => ({
+            items: cat.items.filter((item: any) => {
+               const id = item.name.toLowerCase().replace(/\s+/g, '-');
+               return !outOfStockIds.has(id);
+            }).map((item: any) => ({
               id: item.name.toLowerCase().replace(/\s+/g, '-'),
               name: item.name,
               price: item.price,
-              description: 'A delicious Cecily classic.',
-              is_veg: true, // Placeholder
+              description: item.description || 'A delicious Cecily classic.',
+              image: item.image,
+              is_veg: true, 
               category: cat.title
             }))
           }));
@@ -64,13 +78,14 @@ export default function OrderingMenu() {
         }
       } catch (err) {
         console.error('Error fetching menu. Falling back to local data.', err);
-        const fallbackCategories = menuData.map(cat => ({
+        const fallbackCategories = menuData.map((cat: any) => ({
             category: cat.title,
-            items: cat.items.map(item => ({
+            items: cat.items.map((item: any) => ({
               id: item.name.toLowerCase().replace(/\s+/g, '-'),
               name: item.name,
               price: item.price,
-              description: 'A delicious Cecily classic.',
+              description: item.description || 'A delicious Cecily classic.',
+              image: item.image,
               is_veg: true,
               category: cat.title
             }))

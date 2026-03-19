@@ -33,9 +33,9 @@ function Home() {
     <div className="min-h-screen">
       <Header />
       <Hero />
+      <OrderingMenu />
       <About />
       <PopularDishes />
-      <OrderingMenu />
       <Gallery />
       <Reviews />
       <Reservation />
