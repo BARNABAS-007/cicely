@@ -1,263 +1,217 @@
-import { useState } from 'react';
-import { useCart } from '../contexts/CartContext';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { ArrowLeft, AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import { CheckCircle, Loader, XCircle } from 'lucide-react';
 
 export default function Checkout() {
-  const { items, getTotalPrice, clearCart } = useCart();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [orderPlaced, setOrderPlaced] = useState(false);
-  const [orderId, setOrderId] = useState('');
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const successParam = queryParams.get('success');
+  const queryOrderId = queryParams.get('order_id');
 
-  const [formData, setFormData] = useState({
-    customerName: '',
-    phone: '',
-    address: '',
-  });
+  const [currentOrder, setCurrentOrder] = useState<any>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.customerName || !formData.phone || !formData.address) {
-      setError('Please fill in all fields');
-      return;
+  useEffect(() => {
+    if (successParam === 'true' && queryOrderId) {
+      const fetchOrder = async () => {
+        const { data } = await supabase.from('orders').select('*').eq('id', queryOrderId).single();
+        if (data) setCurrentOrder(data);
+        setLoading(false);
+      };
+      
+      fetchOrder();
+      
+      const channel = supabase.channel(`public:orders:${queryOrderId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${queryOrderId}` }, (payload) => {
+          setCurrentOrder(payload.new);
+        }).subscribe();
+        
+      return () => { supabase.removeChannel(channel); };
+    } else {
+      navigate('/'); // Redirect home if accessed without valid success parameters
     }
+  }, [successParam, queryOrderId, navigate]);
 
-    if (items.length === 0) {
-      setError('Your cart is empty');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
+  const confirmCancel = async () => {
+    setShowCancelModal(false);
+    if (!currentOrder) return;
+    const orderTime = new Date(currentOrder.created_at).getTime();
+    const diffMins = (Date.now() - orderTime) / 60000;
+    const newStatus = diffMins < 2 ? 'refund_processed' : 'cancellation_requested';
+    
     try {
-      const { data, error: err } = await supabase.from('orders').insert([
-        {
-          customer_name: formData.customerName,
-          phone: formData.phone,
-          address: formData.address,
-          items: items.map((item) => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-          })),
-          total_price: getTotalPrice(),
-          order_status: 'pending',
-          delivery_requested: false,
-        },
-      ]);
-
-      if (err) throw err;
-
-      const newOrderId = data?.[0]?.id;
-      setOrderId(newOrderId);
-      setOrderPlaced(true);
-      clearCart();
-    } catch (err: any) {
-      setError(err.message || 'Failed to place order');
-    } finally {
-      setLoading(false);
+      await supabase.from('orders').update({
+        order_status: newStatus,
+        cancellation_reason: 'User requested cancellation',
+        updated_at: new Date().toISOString()
+      }).eq('id', queryOrderId);
+      setCurrentOrder({ ...currentOrder, order_status: newStatus });
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  if (items.length === 0 && !orderPlaced) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900 pt-20 pb-12">
-        <div className="container mx-auto px-4">
-          <button
-            onClick={() => navigate('/#ordering')}
-            className="flex items-center gap-2 text-orange-500 hover:text-orange-400 mb-8 transition"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Menu
-          </button>
-
-          <div className="max-w-2xl mx-auto text-center">
-            <div className="bg-gray-800 rounded-lg p-8 border border-gray-700">
-              <p className="text-gray-400 mb-4">Your cart is empty</p>
-              <button
-                onClick={() => navigate('/#ordering')}
-                className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-lg transition"
-              >
-                Continue Shopping
-              </button>
-            </div>
-          </div>
-        </div>
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <Loader className="w-8 h-8 text-orange-500 animate-spin" />
       </div>
     );
   }
 
-  if (orderPlaced) {
+  if (currentOrder) {
     return (
       <div className="min-h-screen bg-gray-900 pt-20 pb-12">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-4 text-center">
           <div className="max-w-2xl mx-auto">
-            <div className="bg-green-900/20 border border-green-500/50 rounded-lg p-8 text-center">
-              <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-              <h2 className="text-3xl font-bold text-white mb-2">Order Confirmed!</h2>
-              <p className="text-green-200 mb-4">
-                Thank you for your order. Your food will be prepared soon.
-              </p>
+            <div className="mb-8">
+              <div className="w-20 h-20 bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
+                <CheckCircle className="w-10 h-10 text-green-500" />
+              </div>
+              <h2 className="text-3xl font-bold text-white mb-2">Order Successfully Placed!</h2>
+              <p className="text-gray-400">Your delicious food is being prepared.</p>
+            </div>
 
-              <div className="bg-green-900/30 rounded-lg p-4 mb-6 text-left">
-                <p className="text-green-300 font-mono text-sm break-all">
-                  <span className="text-green-400 font-semibold">Order ID:</span> {orderId}
+            <div className="bg-gray-800 rounded-lg p-6 md:p-8 border border-gray-700 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-400 to-orange-600"></div>
+              
+              <div className="mb-8">
+                <h3 className="text-xl font-bold text-white mb-4 flex items-center justify-center gap-2">
+                  {!['cancellation_requested', 'refund_processed', 'cancelled'].includes(currentOrder?.order_status || '') && (
+                    <>
+                      <Loader className="w-5 h-5 text-orange-500 animate-spin" />
+                      {currentOrder?.order_status === 'pending' || currentOrder?.order_status === 'paid' ? 'Order received...' : 
+                       currentOrder?.order_status === 'preparing' ? 'Preparing your food...' : 
+                       currentOrder?.order_status === 'out_for_delivery' ? 'Out for Delivery!' : 'Confirming...'}
+                    </>
+                  )}
+                </h3>
+                <div className="flex justify-between text-sm font-medium text-gray-400 mb-2 px-2">
+                  <span className="text-orange-500">Confirmed</span>
+                  <span className={['preparing', 'ready', 'out_for_delivery', 'delivered'].includes(currentOrder?.order_status) ? 'text-orange-500' : ''}>Preparing</span>
+                  <span className={['out_for_delivery', 'delivered'].includes(currentOrder?.order_status) ? 'text-orange-500' : ''}>Out for Delivery</span>
+                </div>
+                <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <div className={`h-full bg-orange-500 transition-all duration-1000 ${
+                    ['pending', 'paid'].includes(currentOrder?.order_status) ? 'w-1/3' : 
+                    ['preparing', 'ready'].includes(currentOrder?.order_status) ? 'w-2/3' : 
+                    ['out_for_delivery', 'delivered'].includes(currentOrder?.order_status) ? 'w-full' : 'w-0'
+                  }`}></div>
+                </div>
+              </div>
+
+              {/* Cancellation UI Block */}
+              {!['cancellation_requested', 'refund_processed', 'cancelled', 'out_for_delivery', 'delivered'].includes(currentOrder?.order_status || '') && (
+                <div className="mb-6 p-4 bg-gray-800 rounded-xl border border-gray-700 text-left">
+                  <div className="flex items-center justify-between">
+                    <p className="text-gray-400 text-sm">Need to make changes?</p>
+                    {['pending', 'confirmed', 'paid'].includes(currentOrder?.order_status || 'pending') ? (
+                      <button 
+                        onClick={() => setShowCancelModal(true)}
+                        className="text-red-500 hover:text-red-400 font-bold text-sm px-4 py-2 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition"
+                      >
+                        Cancel Order
+                      </button>
+                    ) : (
+                      <span className="text-orange-500 text-sm font-medium">Contact Restaurant to Cancel</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Status Banner for Cancellations/Refunds */}
+              {['cancellation_requested', 'refund_processed', 'cancelled'].includes(currentOrder?.order_status || '') && (
+                <div className="mb-6 p-4 bg-red-900/20 border border-red-500/30 rounded-xl text-left flex gap-3">
+                  <XCircle className="w-6 h-6 text-red-500 shrink-0" />
+                  <div>
+                    <h4 className="text-red-400 font-bold mb-1">
+                      {currentOrder.order_status === 'refund_processed' ? 'Order Cancelled & Refunded' : 'Cancellation Processing'}
+                    </h4>
+                    <p className="text-gray-400 text-sm">
+                      {currentOrder.order_status === 'refund_processed' 
+                        ? 'Your order was successfully cancelled and your payment has been refunded to your original method.' 
+                        : 'Your cancellation request is pending admin review.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-green-900/30 rounded-lg p-4 mb-6 text-left border border-green-500/20">
+                <p className="text-green-300 font-mono text-sm break-all mb-1">
+                  <span className="text-green-400 font-semibold">Order ID:</span> {currentOrder.id}
                 </p>
+                {currentOrder.payment_id && (
+                  <p className="text-green-300 font-mono text-sm break-all">
+                    <span className="text-green-400 font-semibold">Payment ID:</span> {currentOrder.payment_id}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2 text-left mb-6">
                 <p className="text-white">
-                  <span className="text-gray-400">Name:</span> {formData.customerName}
+                  <span className="text-gray-400">Name:</span> {currentOrder.customer_name}
                 </p>
                 <p className="text-white">
-                  <span className="text-gray-400">Phone:</span> {formData.phone}
+                  <span className="text-gray-400">Phone:</span> {currentOrder.phone}
                 </p>
                 <p className="text-white">
-                  <span className="text-gray-400">Delivery Address:</span> {formData.address}
+                  <span className="text-gray-400">Delivery Address:</span> {currentOrder.address}
                 </p>
                 <p className="text-white text-lg font-bold">
-                  <span className="text-gray-400">Total:</span> ${getTotalPrice().toFixed(2)}
+                  <span className="text-gray-400">Total:</span> ₹{(currentOrder.total_price).toFixed(2)}
                 </p>
               </div>
 
               <div className="flex gap-4 flex-col sm:flex-row">
                 <button
                   onClick={() => navigate('/')}
-                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-lg transition"
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-lg transition font-bold"
                 >
                   Back to Home
                 </button>
                 <button
-                  onClick={() => navigate('/#ordering')}
-                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded-lg transition"
+                  onClick={() => window.location.href = `rapido://pickup?address=Cecily+Restaurant,+MG+Road,+Vijayawada&dropoff=${encodeURIComponent(currentOrder.address)}`}
+                  className="flex-1 bg-[#FFD700] hover:bg-[#FACC15] text-gray-900 border border-[#CA8A04] shadow-[0_0_15px_rgba(255,215,0,0.5)] px-6 py-3 rounded-lg transition flex items-center justify-center gap-2 font-bold"
                 >
-                  Order More
+                  🚴 Call Rapido for Delivery
                 </button>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Cancellation Confirmation Modal */}
+        {showCancelModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-gray-800 rounded-2xl p-6 md:p-8 max-w-md w-full border border-gray-700 shadow-2xl animate-in">
+              <h3 className="text-2xl font-bold text-white mb-2 text-center text-red-500">Are you sure?</h3>
+              <p className="text-gray-300 mb-6 text-center">
+                Once the kitchen starts cooking, cancellations may not be possible. If you cancel now, your refund will be processed immediately.
+              </p>
+              
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setShowCancelModal(false)}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition"
+                >
+                  Keep Order
+                </button>
+                <button
+                  onClick={confirmCancel}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition"
+                >
+                  Yes, Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-900 pt-20 pb-12">
-      <div className="container mx-auto px-4">
-        <button
-          onClick={() => navigate('/#ordering')}
-          className="flex items-center gap-2 text-orange-500 hover:text-orange-400 mb-8 transition"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Menu
-        </button>
-
-        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Form */}
-          <div className="md:col-span-2">
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-              <h2 className="text-2xl font-bold text-white mb-6">Delivery Details</h2>
-
-              {error && (
-                <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 mb-6 flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-red-200 text-sm">{error}</p>
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-gray-300 text-sm font-medium mb-2">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.customerName}
-                    onChange={(e) =>
-                      setFormData({ ...formData, customerName: e.target.value })
-                    }
-                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
-                    placeholder="Enter your full name"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-300 text-sm font-medium mb-2">
-                    Phone Number
-                  </label>
-                  <input
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
-                    placeholder="Enter your phone number"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-300 text-sm font-medium mb-2">
-                    Delivery Address
-                  </label>
-                  <textarea
-                    value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition h-28 resize-none"
-                    placeholder="Enter your complete delivery address"
-                    required
-                  ></textarea>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2 mt-6"
-                >
-                  {loading && <Loader className="w-4 h-4 animate-spin" />}
-                  {loading ? 'Placing Order...' : 'Place Order'}
-                </button>
-              </form>
-            </div>
-          </div>
-
-          {/* Order Summary */}
-          <div className="md:col-span-1">
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-6 sticky top-24">
-              <h3 className="text-xl font-bold text-white mb-4">Order Summary</h3>
-              <div className="space-y-3 mb-6 max-h-64 overflow-y-auto">
-                {items.map((item) => (
-                  <div key={item.id} className="flex justify-between text-sm text-gray-300">
-                    <div>
-                      <p className="text-white">{item.name}</p>
-                      <p className="text-gray-400">Qty: {item.quantity}</p>
-                    </div>
-                    <p className="text-orange-400 font-semibold">
-                      ${((typeof item.price === 'string' ? parseFloat(item.price) : item.price) * item.quantity).toFixed(2)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-gray-700 pt-4 space-y-2">
-                <div className="flex justify-between text-gray-300">
-                  <span>Subtotal</span>
-                  <span>${getTotalPrice().toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-white text-lg font-bold">
-                  <span>Total</span>
-                  <span className="text-orange-500">${getTotalPrice().toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }

@@ -13,7 +13,7 @@ export default function Login() {
 
   useEffect(() => {
     if (session) {
-      navigate('/dashboard');
+      navigate('/admin');
     }
   }, [session, navigate]);
 
@@ -24,7 +24,7 @@ export default function Login() {
 
     try {
       await signIn(email, password);
-      navigate('/dashboard');
+      navigate('/admin');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
@@ -35,9 +35,12 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="bg-gray-800 rounded-lg shadow-2xl p-8 border border-gray-700">
-          <h1 className="text-3xl font-bold text-white mb-2">Owner Login</h1>
-          <p className="text-gray-400 mb-8">Access your restaurant dashboard</p>
+        <div className="bg-gray-800 rounded-2xl shadow-2xl p-8 border border-[#CA8A04]/20 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 via-[#FFD700] to-orange-500"></div>
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-serif font-bold text-white mb-2 tracking-tight">Cecily<span className="text-orange-500">.</span></h1>
+            <p className="text-[#DEB887] text-sm uppercase tracking-widest font-semibold">Admin Gateway</p>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (

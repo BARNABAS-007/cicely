@@ -11,11 +11,27 @@ export default function OrdersTab() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [otpInputs, setOtpInputs] = useState<{ [key: string]: string }>({});
 
   useEffect(() => {
     fetchOrders();
-    const interval = setInterval(fetchOrders, 5000);
-    return () => clearInterval(interval);
+
+    // Setup Supabase Realtime subscription
+    const channel = supabase
+      .channel('custom-all-channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        (payload) => {
+          console.log('Change received!', payload);
+          fetchOrders(); // Sync view immediately on any change
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchOrders = async () => {
@@ -51,6 +67,26 @@ export default function OrdersTab() {
     }
   };
 
+  const saveOtp = async (orderId: string) => {
+    const otp = otpInputs[orderId];
+    if (!otp) return;
+    
+    try {
+      const { error: err } = await supabase
+        .from('orders')
+        .update({
+          otp_log: otp,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', orderId);
+
+      if (err) throw err;
+      fetchOrders();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   const filteredOrders =
     filterStatus === 'all'
       ? orders
@@ -64,6 +100,8 @@ export default function OrdersTab() {
     ready: CheckCircle,
     out_for_delivery: Truck,
     delivered: CheckCircle,
+    cancellation_requested: AlertCircle,
+    refund_processed: CheckCircle,
   };
 
   const statusColors: { [key: string]: string } = {
@@ -73,6 +111,8 @@ export default function OrdersTab() {
     out_for_delivery: 'bg-purple-900/20 text-purple-400 border-purple-500/30',
     delivered: 'bg-green-900/20 text-green-400 border-green-500/30',
     cancelled: 'bg-red-900/20 text-red-400 border-red-500/30',
+    cancellation_requested: 'bg-red-900/40 text-red-500 border-red-600 font-bold animate-pulse',
+    refund_processed: 'bg-gray-800 text-gray-400 border-gray-600',
   };
 
   const handleBookDelivery = (order: Order) => {
@@ -120,11 +160,32 @@ export default function OrdersTab() {
         <div className="text-center text-gray-400 py-12">No orders found</div>
       ) : (
         <div className="space-y-4">
-          {filteredOrders.map((order) => {
+          {filteredOrders.map((order: any) => {
             const StatusIcon = statusIcons[order.order_status] || Clock;
+            
+            // Unfulfilled logic: Not delivered, not cancelled, and no OTP logged
+            const isUnfulfilled = 
+              !['delivered', 'cancelled', 'refund_processed', 'cancellation_requested'].includes(order.order_status) && 
+              !order.otp_log;
+
+            const isCancelReq = order.order_status === 'cancellation_requested';
 
             return (
-              <div key={order.id} className="bg-gray-800 rounded-lg border border-gray-700 p-6">
+              <div 
+                key={order.id} 
+                className={`bg-[#1A1A1A] rounded-xl border p-6 transition-all relative ${
+                  isCancelReq 
+                    ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)]'
+                    : isUnfulfilled 
+                      ? 'border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)] animate-[pulse_4s_cubic-bezier(0.4,0,0.6,1)_infinite]' 
+                      : 'border-[#CA8A04]/20'
+                }`}
+              >
+                {isCancelReq && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-widest shadow-lg shadow-red-600/50 animate-bounce">
+                    Action Required
+                  </div>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div>
                     <p className="text-gray-400 text-sm">Order ID</p>
@@ -167,7 +228,7 @@ export default function OrdersTab() {
                 <div className="mb-4">
                   <p className="text-gray-300 text-sm font-semibold mb-2">Items:</p>
                   <div className="space-y-1">
-                    {order.items.map((item, idx) => (
+                    {order.items.map((item: any, idx: number) => (
                       <div key={idx} className="text-gray-300 text-sm flex justify-between">
                         <span>
                           {item.name} × {item.quantity}
@@ -209,11 +270,55 @@ export default function OrdersTab() {
                         </button>
                       );
                     })}
+                    
+                    {/* ADMIN ACTION: Cancellation Requested Workflow */}
+                    {order.order_status === 'cancellation_requested' && (
+                      <div className="flex gap-2 ml-4">
+                        <button
+                          onClick={() => updateOrderStatus(order.id, 'refund_processed')}
+                          className="px-4 py-1.5 text-xs font-bold rounded bg-green-600 hover:bg-green-500 text-white shadow-[0_0_10px_rgba(22,163,74,0.4)] transition uppercase tracking-wide"
+                        >
+                          Approve & Refund
+                        </button>
+                        <button
+                          onClick={() => updateOrderStatus(order.id, 'preparing')}
+                          className="px-4 py-1.5 text-xs font-bold rounded bg-red-900/50 hover:bg-red-800 text-red-200 border border-red-700 transition uppercase tracking-wide"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                    
+                    {/* OTP BAR */}
+                    <div className="flex items-center gap-2 ml-4 relative">
+                      <input 
+                        type="text" 
+                        placeholder={order.otp_log ? `OTP: ${order.otp_log}` : "Delivery OTP"}
+                        maxLength={6}
+                        value={otpInputs[order.id] || ''}
+                        onChange={(e) => setOtpInputs({ ...otpInputs, [order.id]: e.target.value })}
+                        disabled={!!order.otp_log}
+                        className={`w-28 px-3 py-1.5 text-sm rounded ${
+                          order.otp_log 
+                            ? 'bg-green-900/20 text-green-400 border border-green-500/30' 
+                            : 'bg-gray-900 text-white border border-gray-700 focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]'
+                        } outline-none transition uppercase`}
+                      />
+                      {!order.otp_log && (
+                        <button
+                          onClick={() => saveOtp(order.id)}
+                          className="px-3 py-1.5 text-xs font-bold rounded bg-[#D4AF37] hover:bg-[#FFD700] text-gray-900 transition"
+                        >
+                          Save
+                        </button>
+                      )}
+                    </div>
+
                     <button
                       onClick={() => handleBookDelivery(order)}
-                      className="px-3 py-1 text-xs rounded transition bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1"
+                      className="px-3 py-1.5 text-xs font-bold ml-2 rounded transition bg-[#222222] border border-[#CA8A04] hover:bg-[#333333] text-[#FFD700] flex items-center gap-2"
                     >
-                      <Package className="w-3 h-3" />
+                      <Package className="w-3.5 h-3.5" />
                       Book Delivery
                     </button>
                   </div>

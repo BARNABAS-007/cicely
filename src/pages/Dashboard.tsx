@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, BarChart3, Calendar, UtensilsCrossed, Settings, ShoppingBag } from 'lucide-react';
+import { LogOut, BarChart3, Calendar, UtensilsCrossed, Settings, ShoppingBag, Package } from 'lucide-react';
 import ReservationsTab from '../components/dashboard/ReservationsTab';
 import AnalyticsTab from '../components/dashboard/AnalyticsTab';
 import MenuTab from '../components/dashboard/MenuTab';
 import OrdersTab from '../components/dashboard/OrdersTab';
+import LiveInventoryTab from '../components/dashboard/LiveInventoryTab';
 
-type TabType = 'orders' | 'reservations' | 'analytics' | 'menu' | 'settings';
+type TabType = 'orders' | 'reservations' | 'analytics' | 'menu' | 'inventory' | 'settings';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<TabType>('reservations');
@@ -33,6 +34,7 @@ export default function Dashboard() {
             {[
               { id: 'orders' as TabType, label: 'Orders', icon: ShoppingBag },
               { id: 'reservations' as TabType, label: 'Reservations', icon: Calendar },
+              { id: 'inventory' as TabType, label: 'Live Inventory', icon: Package },
               { id: 'analytics' as TabType, label: 'Analytics', icon: BarChart3 },
               { id: 'menu' as TabType, label: 'Menu Management', icon: UtensilsCrossed },
               { id: 'settings' as TabType, label: 'Settings', icon: Settings },
@@ -72,6 +74,7 @@ export default function Dashboard() {
             {activeTab === 'orders' && <OrdersTab />}
             {activeTab === 'reservations' && <ReservationsTab />}
             {activeTab === 'analytics' && <AnalyticsTab />}
+            {activeTab === 'inventory' && <LiveInventoryTab />}
             {activeTab === 'menu' && <MenuTab />}
             {activeTab === 'settings' && (
               <div className="text-gray-400">

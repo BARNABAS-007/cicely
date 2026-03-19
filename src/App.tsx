@@ -10,7 +10,6 @@ import Header from './components/Header';
 import Hero from './components/Hero';
 import About from './components/About';
 import PopularDishes from './components/PopularDishes';
-import Menu from './components/Menu';
 import Gallery from './components/Gallery';
 import Reviews from './components/Reviews';
 import Reservation from './components/Reservation';
@@ -26,7 +25,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">Loading...</div>;
   }
 
-  return session ? <>{children}</> : <Navigate to="/" />;
+  return session ? <>{children}</> : <Navigate to="/login" />;
 }
 
 function Home() {
@@ -36,11 +35,10 @@ function Home() {
       <Hero />
       <About />
       <PopularDishes />
-      <Menu />
+      <OrderingMenu />
       <Gallery />
       <Reviews />
       <Reservation />
-      <OrderingMenu />
       <Contact />
       <Footer />
       <Cart />
@@ -59,7 +57,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route
-              path="/dashboard"
+              path="/admin"
               element={
                 <ProtectedRoute>
                   <Dashboard />
