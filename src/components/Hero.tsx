@@ -25,10 +25,10 @@ export default function Hero() {
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <button
-            onClick={() => scrollToSection('menu')}
+            onClick={() => scrollToSection('ordering')}
             className="bg-orange-600 hover:bg-orange-700 text-white px-8 py-3 rounded-md text-lg font-medium transition-colors"
           >
-            View Menu
+            Order Now
           </button>
           <button
             onClick={() => scrollToSection('reservation')}
