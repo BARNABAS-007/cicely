@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Razorpay from "https://esm.sh/razorpay@2.9.2";
 
