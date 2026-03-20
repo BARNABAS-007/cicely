@@ -17,18 +17,31 @@ export default function LiveInventoryTab() {
 
   useEffect(() => {
     async function loadInventory() {
-      // 1. Load initial items from menuData
-      const initialItems: InventoryItem[] = menuData.flatMap((cat) =>
-        cat.items.map((item) => ({
-          id: item.name.toLowerCase().replace(/\s+/g, '-'),
-          name: item.name,
-          category: cat.category,
-          in_stock: true, // Default
-        }))
-      );
+      let initialItems: InventoryItem[] = [];
 
       try {
-        // 2. Try fetching from Supabase to override defaults
+        // 1. Fetch from menu_items table instead of local fallback
+        const { data: menuItems, error: menuErr } = await supabase.from('menu_items').select('*');
+        if (!menuErr && menuItems && menuItems.length > 0) {
+          initialItems = menuItems.map((item: any) => ({
+            id: item.id,
+            name: item.name,
+            category: item.category || 'Uncategorized',
+            in_stock: true, // Default
+          }));
+        } else {
+          // Fallback if menu_items fails or is empty
+          initialItems = menuData.flatMap((cat: any) =>
+            cat.items.map((item: any) => ({
+              id: item.name.toLowerCase().replace(/\s+/g, '-'),
+              name: item.name,
+              category: cat.title || cat.category || 'Uncategorized',
+              in_stock: true, // Default
+            }))
+          );
+        }
+
+        // 2. Try fetching from inventory to override defaults
         const { data, error } = await supabase.from('inventory').select('*');
         if (data && !error) {
           const dbStockMap = new Map(data.map((row: any) => [row.item_id, row.in_stock]));
@@ -39,7 +52,15 @@ export default function LiveInventoryTab() {
           });
         }
       } catch (err) {
-        console.warn("Inventory table might not exist yet, using local state.");
+        console.warn("DB connections failed, using local state.", err);
+        initialItems = menuData.flatMap((cat: any) =>
+            cat.items.map((item: any) => ({
+              id: item.name.toLowerCase().replace(/\s+/g, '-'),
+              name: item.name,
+              category: cat.title || cat.category || 'Uncategorized',
+              in_stock: true, // Default
+            }))
+        );
       }
 
       setItems(initialItems);
