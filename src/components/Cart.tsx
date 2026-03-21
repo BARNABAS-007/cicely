@@ -215,8 +215,11 @@ export default function Cart() {
                     </span>
                     <span className="text-gray-200">₹5.00</span>
                   </div>
-                  <div className="pt-2 text-center border-t border-gray-700/50 mt-2">
+                  <div className="pt-2 text-center border-t border-gray-700/50 mt-2 flex flex-col gap-1">
                     <span className="text-green-400 font-bold text-xs uppercase tracking-wider block">✨ No Packaging Charges - Direct from Cecily</span>
+                    <span className="text-emerald-400 font-medium text-xs bg-emerald-900/20 py-1.5 px-2 rounded-md border border-emerald-500/20 inline-block mt-1">
+                      🎉 You save 20-30% compared to other platforms by ordering directly!
+                    </span>
                   </div>
                 </div>
 
