@@ -27,7 +27,7 @@ export default function Header() {
   const navItems = [
     { label: 'Home', id: 'top' },
     { label: 'About', id: 'about' },
-    { label: 'Menu', id: 'menu' },
+    { label: 'Menu', id: 'ordering' },
     { label: 'Reservations', id: 'reservation' },
     { label: 'Contact', id: 'contact' },
   ];

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, X, Minus, Plus, Loader, MapPin } from 'lucide-react';
@@ -8,6 +8,18 @@ export default function Cart() {
   const { items, removeItem, updateQuantity, getTotalPrice, getTotalItems, clearCart } = useCart();
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  
+  // Defensive scroll unlock
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({ name: '', countryCode: '+91', phone: '', address: '' });
   const [gettingLocation, setGettingLocation] = useState(false);

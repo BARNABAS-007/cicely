@@ -1,5 +1,5 @@
 import { X, ShoppingBag } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface SizeSelectionModalProps {
   isOpen: boolean;
@@ -10,6 +10,17 @@ interface SizeSelectionModalProps {
 
 export default function SizeSelectionModal({ isOpen, item, onClose, onConfirm }: SizeSelectionModalProps) {
   const [selectedIdx, setSelectedIdx] = useState<number>(0);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
 
   if (!isOpen || !item) return null;
 
