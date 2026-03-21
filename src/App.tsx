@@ -1,11 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, lazy } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { CartProvider } from './contexts/CartContext';
 import { useAuth } from './contexts/AuthContext';
-import Login from './pages/Login';
-import Setup from './pages/Setup';
-import Dashboard from './pages/Dashboard';
-import Checkout from './pages/Checkout';
+
+const Login = lazy(() => import('./pages/Login'));
+const Setup = lazy(() => import('./pages/Setup'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Checkout = lazy(() => import('./pages/Checkout'));
 import Header from './components/Header';
 import Hero from './components/Hero';
 import About from './components/About';
@@ -51,20 +53,22 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <CartProvider>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/setup" element={<Setup />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/checkout" element={<Checkout />} />
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
+          <Suspense fallback={<div className="min-h-screen bg-gray-900 flex items-center justify-center text-orange-500 font-bold">Loading Cicely...</div>}>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/setup" element={<Setup />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/checkout" element={<Checkout />} />
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </Suspense>
         </CartProvider>
       </AuthProvider>
     </BrowserRouter>
