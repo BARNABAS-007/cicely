@@ -7,6 +7,7 @@ import AnalyticsTab from '../components/dashboard/AnalyticsTab';
 import MenuTab from '../components/dashboard/MenuTab';
 import OrdersTab from '../components/dashboard/OrdersTab';
 import LiveInventoryTab from '../components/dashboard/LiveInventoryTab';
+import SettingsTab from '../components/dashboard/SettingsTab';
 
 type TabType = 'orders' | 'reservations' | 'analytics' | 'menu' | 'inventory' | 'settings';
 
@@ -76,12 +77,7 @@ export default function Dashboard() {
             {activeTab === 'analytics' && <AnalyticsTab />}
             {activeTab === 'inventory' && <LiveInventoryTab />}
             {activeTab === 'menu' && <MenuTab />}
-            {activeTab === 'settings' && (
-              <div className="text-gray-400">
-                <h2 className="text-2xl font-bold text-white mb-4">Settings</h2>
-                <p>Settings panel coming soon</p>
-              </div>
-            )}
+            {activeTab === 'settings' && <SettingsTab />}
           </div>
         </div>
       </div>

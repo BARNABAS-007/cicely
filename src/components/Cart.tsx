@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingCart, X, Minus, Plus, Loader } from 'lucide-react';
+import { ShoppingCart, X, Minus, Plus, Loader, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 export default function Cart() {
@@ -9,9 +9,42 @@ export default function Cart() {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [formData, setFormData] = useState({ name: '', phone: '', address: '' });
+  const [formData, setFormData] = useState({ name: '', countryCode: '+91', phone: '', address: '' });
+  const [gettingLocation, setGettingLocation] = useState(false);
   const navigate = useNavigate();
   const totalItems = getTotalItems();
+
+  const handleGetLocation = () => {
+    if (!('geolocation' in navigator)) {
+      setError('Geolocation is not supported by your browser');
+      return;
+    }
+    
+    setGettingLocation(true);
+    setError('');
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+          const data = await res.json();
+          if (data && data.display_name) {
+            setFormData(prev => ({ ...prev, address: data.display_name }));
+          } else {
+            setFormData(prev => ({ ...prev, address: `${latitude}, ${longitude}` }));
+          }
+        } catch (err) {
+          setError('Failed to get address from location');
+        } finally {
+          setGettingLocation(false);
+        }
+      },
+      () => {
+        setError('Failed to get location. Please allow location access.');
+        setGettingLocation(false);
+      }
+    );
+  };
 
   const handlePlaceOrder = async () => {
     if (!formData.name || !formData.phone || !formData.address) {
@@ -40,7 +73,7 @@ export default function Cart() {
           try {
             const { data, error: err } = await supabase.from('orders').insert([{
               customer_name: formData.name,
-              phone: formData.phone,
+              phone: `${formData.countryCode} ${formData.phone}`,
               address: formData.address,
               items: items.map((item) => ({ id: item.id, name: item.name, price: item.price, quantity: item.quantity })),
               total_price: totalAmount,
@@ -58,7 +91,7 @@ export default function Cart() {
             setLoading(false);
           }
         },
-        prefill: { name: formData.name, contact: formData.phone },
+        prefill: { name: formData.name, contact: `${formData.countryCode} ${formData.phone}` },
         theme: { color: '#EA580C' },
         modal: { ondismiss: () => setLoading(false) }
       };
@@ -204,19 +237,43 @@ export default function Cart() {
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded text-sm focus:border-orange-500 transition outline-none"
                   />
-                  <input
-                    type="tel"
-                    placeholder="Phone Number"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded text-sm focus:border-orange-500 transition outline-none"
-                  />
-                  <textarea
-                    placeholder="Delivery Address"
-                    value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded text-sm focus:border-orange-500 transition outline-none h-16 resize-none"
-                  />
+                  <div className="flex gap-2">
+                    <select
+                      value={formData.countryCode}
+                      onChange={(e) => setFormData({ ...formData, countryCode: e.target.value })}
+                      className="bg-gray-800 border border-gray-700 text-white px-2 py-2 rounded text-sm focus:border-orange-500 focus:outline-none w-24"
+                    >
+                      <option value="+91">+91 (IN)</option>
+                      <option value="+1">+1 (US)</option>
+                      <option value="+44">+44 (UK)</option>
+                      <option value="+61">+61 (AU)</option>
+                      <option value="+971">+971 (AE)</option>
+                      <option value="+65">+65 (SG)</option>
+                    </select>
+                    <input
+                      type="tel"
+                      placeholder="Phone Number"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      className="flex-1 bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded text-sm focus:border-orange-500 transition outline-none"
+                    />
+                  </div>
+                  <div className="relative">
+                    <textarea
+                      placeholder="Delivery Address"
+                      value={formData.address}
+                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                      className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded text-sm focus:border-orange-500 transition outline-none h-20 resize-none pr-10"
+                    />
+                    <button
+                      onClick={handleGetLocation}
+                      disabled={gettingLocation}
+                      title="Use Current Location"
+                      className="absolute right-2 top-2 p-1.5 bg-gray-700 hover:bg-orange-500 text-white rounded transition-colors disabled:opacity-50"
+                    >
+                      {gettingLocation ? <Loader className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <button
