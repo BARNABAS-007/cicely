@@ -14,6 +14,25 @@ export default function Checkout() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [otpValue, setOtpValue] = useState('');
+  const [showOtpInput, setShowOtpInput] = useState(false);
+
+  useEffect(() => {
+    let timer: any;
+    if (countdown !== null && countdown > 0) {
+      timer = setInterval(() => {
+        setCountdown((prev) => (prev ? prev - 1 : 0));
+      }, 1000);
+    } else if (countdown === 0) {
+      if (!currentOrder?.otp_log) {
+        alert("⚠️ ACTION REQUIRED: Enter Pickup OTP for Rapido Captain.");
+      }
+      setCountdown(null);
+    }
+    return () => clearInterval(timer);
+  }, [countdown, currentOrder]);
+
   useEffect(() => {
     if (successParam === 'true' && queryOrderId) {
       const fetchOrder = async () => {
@@ -25,8 +44,14 @@ export default function Checkout() {
       fetchOrder();
       
       const channel = supabase.channel(`public:orders:${queryOrderId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${queryOrderId}` }, (payload) => {
-          setCurrentOrder(payload.new);
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${queryOrderId}` }, (payload: any) => {
+          setCurrentOrder((prevOrder: any) => {
+             // If status just became ready, vibrate
+             if (payload.new.order_status === 'ready' && prevOrder?.order_status !== 'ready') {
+                 if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 500]);
+             }
+             return payload.new;
+          });
         }).subscribe();
         
       return () => { supabase.removeChannel(channel); };
@@ -173,12 +198,57 @@ export default function Checkout() {
                   Back to Home
                 </button>
                 <button
-                  onClick={() => window.location.href = `rapido://pickup?address=Cecily+Restaurant,+MG+Road,+Vijayawada&dropoff=${encodeURIComponent(currentOrder.address)}`}
-                  className="flex-1 bg-[#FFD700] hover:bg-[#FACC15] text-gray-900 border border-[#CA8A04] shadow-[0_0_15px_rgba(255,215,0,0.5)] px-6 py-3 rounded-lg transition flex items-center justify-center gap-2 font-bold"
+                  onClick={async () => {
+                     await supabase.from('orders').update({ delivery_requested: true }).eq('id', currentOrder.id);
+                     window.location.href = `rapido://pickup?address=Cecily+Restaurant,+MG+Road,+Vijayawada&dropoff=${encodeURIComponent(currentOrder.address)}`;
+                     setShowOtpInput(true);
+                     setCountdown(30);
+                  }}
+                  className={`flex-1 ${currentOrder?.order_status === 'ready' ? 'bg-[#FFD700] hover:bg-[#FACC15] animate-pulse shadow-[0_0_20px_rgba(255,215,0,0.8)]' : 'bg-[#FFD700] hover:bg-[#FACC15] shadow-[0_0_15px_rgba(255,215,0,0.5)]'} text-gray-900 border border-[#CA8A04] px-6 py-3 rounded-lg transition flex items-center justify-center gap-2 font-bold`}
                 >
-                  🚴 Call Rapido for Delivery
+                  {currentOrder?.order_status === 'ready' ? '🚨 BOOK RIDER NOW (FOOD READY)' : '🚴 Call Rapido for Delivery'}
                 </button>
               </div>
+
+              {showOtpInput && !currentOrder?.otp_log && (
+                <div className="mt-6 bg-gray-900 border border-orange-500/30 rounded-lg p-4 text-left animate-in fade-in slide-in-from-bottom-4">
+                  <h4 className="text-orange-400 font-bold mb-2 flex justify-between items-center">
+                    <span>Enter Rapido Pickup OTP</span>
+                    {countdown !== null && countdown > 0 && (
+                      <span className="text-red-500 text-sm font-mono animate-pulse">{countdown}s</span>
+                    )}
+                  </h4>
+                  <p className="text-gray-400 text-xs mb-3">
+                    Check your Rapido app for the 4-digit pickup OTP. The rider needs this to collect the food.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      maxLength={4}
+                      value={otpValue}
+                      onChange={(e) => setOtpValue(e.target.value.replace(/\D/g, ''))}
+                      placeholder="0000"
+                      className="bg-gray-800 text-white border border-gray-700 rounded px-4 py-2 flex-1 outline-none focus:border-orange-500 text-center tracking-[0.5em] font-mono text-lg"
+                    />
+                    <button
+                      onClick={async () => {
+                        if (otpValue.length === 4) {
+                          await supabase.from('orders').update({ otp_log: otpValue }).eq('id', currentOrder.id);
+                        }
+                      }}
+                      disabled={otpValue.length !== 4}
+                      className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 font-bold rounded transition"
+                    >
+                      Save OTP
+                    </button>
+                  </div>
+                </div>
+              )}
+              {currentOrder?.otp_log && (
+                 <div className="mt-6 bg-green-900/20 border border-green-500/30 rounded-lg p-3 text-center">
+                    <p className="text-green-400 font-bold text-sm">✓ OTP ({currentOrder.otp_log}) Saved Successfully</p>
+                 </div>
+              )}
             </div>
           </div>
         </div>

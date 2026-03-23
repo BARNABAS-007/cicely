@@ -187,7 +187,7 @@ export default function OrderingMenu() {
         ) : (
           <>
             {/* Category Tabs */}
-            <div className="sticky top-0 z-20 bg-gray-900/95 backdrop-blur pt-4 pb-4 mb-8 flex overflow-x-auto gap-2 border-b border-gray-800 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
+            <div className="sticky top-0 z-20 bg-white/30 backdrop-blur-[12px] pt-4 pb-4 mb-8 flex overflow-x-auto gap-2 border-b border-gray-800/50 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
               {categories.map((category) => (
                 <button
                   key={category.category}
@@ -195,7 +195,7 @@ export default function OrderingMenu() {
                   className={`px-6 py-2 rounded-lg font-medium whitespace-nowrap transition flex-shrink-0 ${
                     selectedCategory === category.category
                       ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20'
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      : 'bg-gray-800/80 text-gray-200 hover:bg-gray-700'
                   }`}
                 >
                   {category.category}

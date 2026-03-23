@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Order } from '../../types';
-import { AlertCircle, Truck, ChefHat, Clock, CheckCircle, Phone, MapPin, Package } from 'lucide-react';
+import { AlertCircle, Truck, ChefHat, Clock, CheckCircle, Phone, MapPin, Package, Download } from 'lucide-react';
 import DeliveryModal from '../DeliveryModal';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 export default function OrdersTab() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -118,6 +120,84 @@ export default function OrdersTab() {
   const handleBookDelivery = (order: Order) => {
     setSelectedOrder(order);
     setShowDeliveryModal(true);
+  };
+
+  const generateBill = (order: any) => {
+    const doc = new jsPDF();
+    
+    doc.setFontSize(22);
+    doc.setTextColor(234, 88, 12);
+    doc.text("Cecily Restaurant", 105, 20, { align: "center" });
+    
+    doc.setFontSize(11);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Order ID: ${order.id}`, 14, 30);
+    doc.text(`Date & Time: ${new Date(order.created_at).toLocaleString()}`, 14, 36);
+    
+    doc.setFontSize(14);
+    doc.setTextColor(0, 0, 0);
+    doc.text("Customer Details", 14, 50);
+    doc.setFontSize(11);
+    doc.text(`Name: ${order.customer_name}`, 14, 58);
+    doc.text(`Phone: ${order.phone}`, 14, 66);
+    doc.text(`Delivery Address: ${order.address}`, 14, 74);
+    
+    if (order.otp_log) {
+      doc.setFontSize(14);
+      doc.setTextColor(22, 163, 74);
+      doc.text(`Pickup OTP: ${order.otp_log}`, 14, 88);
+      doc.setTextColor(0, 0, 0);
+    } else {
+      doc.setFontSize(14);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Pickup OTP: Pending`, 14, 88);
+      doc.setTextColor(0, 0, 0);
+    }
+
+    const tableData: any[] = [];
+    let subtotal = 0;
+    
+    if (order.items && Array.isArray(order.items)) {
+      order.items.forEach((item: any) => {
+        const price = typeof item.price === 'string' ? parseFloat(item.price) : item.price;
+        const totalItem = price * item.quantity;
+        subtotal += totalItem;
+        tableData.push([item.name, item.quantity, `Rs. ${price.toFixed(2)}`, `Rs. ${totalItem.toFixed(2)}`]);
+      });
+    }
+    
+    const gst = subtotal * 0.05;
+    const platformFee = 10.00;
+    const grandTotal = subtotal + gst + platformFee;
+    
+    // @ts-ignore
+    doc.autoTable({
+      startY: 96,
+      head: [['Item', 'Qty', 'Unit Price', 'Total']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [234, 88, 12], textColor: 255 },
+      styles: { fontSize: 10 }
+    });
+    
+    // @ts-ignore
+    const finalY = doc.lastAutoTable?.finalY || 100;
+    
+    doc.setFontSize(11);
+    doc.text(`Subtotal : Rs. ${subtotal.toFixed(2)}`, 130, finalY + 12);
+    doc.text(`Food GST (5%) : Rs. ${gst.toFixed(2)}`, 130, finalY + 20);
+    doc.text(`Platform Fee : Rs. ${platformFee.toFixed(2)}`, 130, finalY + 28);
+    
+    doc.setFontSize(14);
+    doc.setTextColor(234, 88, 12);
+    doc.text(`Grand Total : Rs. ${grandTotal.toFixed(2)}`, 130, finalY + 40);
+    
+    // Watermark / Footer note
+    doc.setFontSize(9);
+    doc.setTextColor(150, 150, 150);
+    doc.text("Packaging fees excluded from this bill computationally.", 105, 280, { align: "center" });
+
+    doc.save(`Invoice_${order.id.slice(0, 8)}.pdf`);
   };
 
   return (
@@ -251,7 +331,19 @@ export default function OrdersTab() {
                   <div className="flex-1"></div>
 
                   <div className="flex gap-2">
-                    {statusFlow.map((status, idx) => {
+                    {/* Action Center - Smart Ready Button */}
+                    {order.order_status === 'preparing' && (
+                      <button
+                        onClick={() => updateOrderStatus(order.id, 'ready')}
+                        className="px-4 py-1.5 ml-4 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded shadow-[0_0_15px_rgba(234,88,12,0.6)] flex items-center gap-2 animate-bounce uppercase tracking-wide text-xs transition"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        Mark Ready & Notify
+                      </button>
+                    )}
+                    
+                    {/* Standard Status Buttons (Only render if not 'preparing' to avoid duplication with smart button) */}
+                    {order.order_status !== 'preparing' && statusFlow.map((status, idx) => {
                       const currentIdx = statusFlow.indexOf(order.order_status);
                       return (
                         <button
@@ -321,13 +413,23 @@ export default function OrdersTab() {
                       <Package className="w-3.5 h-3.5" />
                       Book Delivery
                     </button>
+
+                    <button
+                      onClick={() => generateBill(order)}
+                      className="px-3 py-1.5 text-xs font-bold ml-2 rounded transition bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white flex items-center gap-2"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Download Bill
+                    </button>
                   </div>
                 </div>
 
+                {/* Logistics Status */}
                 {order.delivery_requested && (
-                  <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3 text-sm">
-                    <p className="text-blue-300">
-                      Delivery tracking enabled - Customer tracking order in real-time
+                  <div className="bg-emerald-900/20 border border-emerald-500/50 rounded-lg p-3 text-sm mt-4 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                    <p className="text-emerald-400 font-bold flex items-center gap-2">
+                      <Truck className="w-5 h-5" />
+                      Logistics Status: User successfully clicked "Call Rapido" and delivery is en route! 
                     </p>
                   </div>
                 )}

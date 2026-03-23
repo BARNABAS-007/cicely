@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, Minus } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 interface CecilyOrderCardProps {
   item: any;
@@ -111,7 +112,9 @@ export default function CecilyOrderCard({
               </button>
             </div>
           ) : (
-            <button
+            <motion.button
+              whileTap={item.is_available !== false ? { scale: 0.95 } : undefined}
+              transition={{ type: 'spring', stiffness: 400, damping: 10 }}
               onClick={handleAddClick}
               disabled={item.is_available === false}
               className={`text-white font-bold text-sm h-9 px-6 rounded-full uppercase tracking-wide transition shadow-md border-[2px] border-gray-800 disabled:opacity-50 disabled:cursor-not-allowed ${
@@ -123,7 +126,7 @@ export default function CecilyOrderCard({
               }`}
             >
               {isAdding ? 'Added!' : <>Add {hasMultipleSizes && <span className="text-[10px] ml-1 font-normal">+</span>}</>}
-            </button>
+            </motion.button>
           )}
         </div>
       </div>

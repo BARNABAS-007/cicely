@@ -8,6 +8,7 @@ export default function Cart() {
   const { items, removeItem, updateQuantity, getTotalPrice, getTotalItems, clearCart } = useCart();
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checkoutStep, setCheckoutStep] = useState('idle'); // 'idle' | 'securing' | 'processing'
   
   // Defensive scroll unlock
   useEffect(() => {
@@ -64,21 +65,58 @@ export default function Cart() {
       return;
     }
     setLoading(true);
+    setCheckoutStep('securing');
     setError('');
 
     try {
+      // 1. Try to decrement stock (non-blocking — don't stop checkout if RPC fails)
+      for (const item of items) {
+        for (let i = 0; i < item.quantity; i++) {
+          const { data: success, error: rpcErr } = await supabase.rpc('decrement_stock', { p_item_id: item.id });
+          
+          if (rpcErr) {
+            // RPC not set up or failed — log warning but continue
+            console.warn(`decrement_stock RPC failed for ${item.name}:`, rpcErr.message);
+          } else if (!success) {
+            // Item truly out of stock — log conflict and stop
+            await supabase.from('race_conditions').insert({
+              item_id: item.id,
+              user_phone: `${formData.countryCode} ${formData.phone}`,
+              reason: `Failed to secure stock for ${item.name} (Qty requested: ${item.quantity}).`
+            }).then(() => {});
+            
+            setError(`High Demand Alert: Someone just grabbed the last ${item.name}! Please remove it to continue.`);
+            setLoading(false);
+            setCheckoutStep('idle');
+            return;
+          }
+        }
+      }
+
+      setCheckoutStep('processing');
+
       const totalAmount = getTotalPrice() + (getTotalPrice() * 0.05) + 5;
       
-      const { data: edgeData, error: edgeError } = await supabase.functions.invoke('create-razorpay-order', {
-        body: { amount: Math.round(totalAmount * 100) }
-      });
-      if(edgeError) console.warn("Fallback to client edge creation");
+      // 2. Try to create a Razorpay order via Edge Function
+      let razorpayOrderId: string | undefined;
+      try {
+        const { data: edgeData, error: edgeError } = await supabase.functions.invoke('create-razorpay-order', {
+          body: { amount: Math.round(totalAmount * 100) }
+        });
+        if (edgeError || !edgeData?.id) {
+          console.warn('Edge function unavailable, proceeding without order_id:', edgeError?.message);
+        } else {
+          razorpayOrderId = edgeData.id;
+        }
+      } catch (edgeFnErr) {
+        console.warn('Edge function call failed, proceeding without order_id');
+      }
 
-      const options = {
-        key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_dummykey',
+      // 3. Build Razorpay options — only include order_id if we have one
+      const options: Record<string, any> = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
         amount: Math.round(totalAmount * 100), 
         currency: 'INR',
-        order_id: edgeData?.id,
         name: 'Cecily Restaurant',
         description: 'Direct Food Ordering',
         handler: async function (response: any) {
@@ -101,24 +139,34 @@ export default function Cart() {
           } catch (dbErr: any) {
             setError('Payment successful but failed to record order.');
             setLoading(false);
+            setCheckoutStep('idle');
           }
         },
         prefill: { name: formData.name, contact: `${formData.countryCode} ${formData.phone}` },
         theme: { color: '#EA580C' },
-        modal: { ondismiss: () => setLoading(false) }
+        modal: { ondismiss: () => { setLoading(false); setCheckoutStep('idle'); } }
       };
+
+      // Only attach order_id if edge function returned a valid one
+      if (razorpayOrderId) {
+        options.order_id = razorpayOrderId;
+      }
+
 
       const rzp = new (window as any).Razorpay(options);
       rzp.on('payment.failed', function (response: any) {
         setError('Payment Failed: ' + response.error.description);
         setLoading(false);
+        setCheckoutStep('idle');
       });
       rzp.open();
     } catch (err: any) {
       setError(err.message || 'Failed to initialize payment');
       setLoading(false);
+      setCheckoutStep('idle');
     }
   };
+
 
   return (
     <>
@@ -297,7 +345,8 @@ export default function Cart() {
                   className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
                 >
                   {loading && <Loader className="w-4 h-4 animate-spin" />}
-                  {loading ? 'Processing...' : 'PLACE ORDER'}
+                  {checkoutStep === 'securing' ? 'Securing your order...' : 
+                   checkoutStep === 'processing' ? 'Processing Payment...' : 'PLACE ORDER'}
                 </button>
 
                 <button

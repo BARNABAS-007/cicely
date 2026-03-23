@@ -53,13 +53,31 @@ export default function ModernMenu() {
   useEffect(() => {
     async function fetchMenu() {
       try {
-        const { data } = await supabase
-          .from('menu_items')
-          .select('*')
-          .eq('is_available', true);
+        const [menuResponse, inventoryResponse] = await Promise.all([
+          supabase.from('menu_items').select('*').eq('is_available', true),
+          supabase.from('inventory').select('*')
+        ]);
 
-        // Merge DB data with local data or prioritize local for redesign items
-        const rawItems = (data && data.length > 0) ? data : menuData.flatMap(c => c.items);
+        let rawItems = (menuResponse.data && menuResponse.data.length > 0) 
+          ? menuResponse.data 
+          : menuData.flatMap(c => c.items);
+
+        if (inventoryResponse.data && !inventoryResponse.error) {
+          const invMap = new Map();
+          inventoryResponse.data.forEach((inv: any) => {
+             invMap.set(inv.item_id, inv);
+          });
+          
+          rawItems = rawItems.filter((item: any) => {
+             const id = item.id || item.name.toLowerCase().replace(/\s+/g, '-');
+             if (invMap.has(id)) {
+                 const inv = invMap.get(id);
+                 return inv.in_stock && (inv.stock_count === undefined || inv.stock_count > 0);
+             }
+             return true; // Not in inventory means safe/default
+          });
+        }
+
         
         const soupImages: Record<string, string> = {
           'cream-of-mushroom': '/images/redesign/mushroom_soup.png',
