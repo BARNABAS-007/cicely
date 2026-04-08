@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Order } from '../../types';
-import { AlertCircle, Truck, ChefHat, Clock, CheckCircle, Phone, MapPin, Package, Download } from 'lucide-react';
+import { AlertCircle, Truck, Phone, MapPin, Package, Download, RefreshCw } from 'lucide-react';
 import DeliveryModal from '../DeliveryModal';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 export default function OrdersTab() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -13,35 +13,70 @@ export default function OrdersTab() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
-  const [otpInputs, setOtpInputs] = useState<{ [key: string]: string }>({});
+  const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
 
   useEffect(() => {
     fetchOrders();
 
-    // Setup Supabase Realtime subscription
+    // Setup Supabase Realtime subscription with status tracking
+    console.log('🔔 Initializing Realtime for Orders...');
     const channel = supabase
-      .channel('custom-all-channel')
+      .channel('admin-orders-live')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders' },
+        { event: 'INSERT', schema: 'public', table: 'orders' },
         (payload) => {
-          console.log('Change received!', payload);
-          fetchOrders(); // Sync view immediately on any change
+          console.log('✅ NEW ORDER RECEIVED:', payload.new.id);
+          playBuzzSound();
+          fetchOrders();
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        (payload) => {
+          console.log('🔄 ORDER UPDATED:', payload.new.id);
+          fetchOrders();
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Realtime Status:', status);
+        if (status === 'SUBSCRIBED') setRealtimeStatus('connected');
+        if (status === 'CLOSED' || status === 'CHANNEL_ERROR') setRealtimeStatus('error');
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, []);
 
+  const playBuzzSound = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playBeep = (startTime: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'square';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.3, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
+        osc.start(startTime);
+        osc.stop(startTime + 0.3);
+      };
+      [0, 0.4, 0.8].forEach(t => playBeep(ctx.currentTime + t));
+    } catch (e) { console.warn('Audio buzz failed', e); }
+  };
+
   const fetchOrders = async () => {
     try {
+      // PERF: Limit to last 50 orders to avoid "snail" speed on large DBs
       const { data, error: err } = await supabase
         .from('orders')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(50);
 
       if (err) throw err;
       setOrders(data || []);
@@ -69,24 +104,9 @@ export default function OrdersTab() {
     }
   };
 
-  const saveOtp = async (orderId: string) => {
-    const otp = otpInputs[orderId];
-    if (!otp) return;
-    
-    try {
-      const { error: err } = await supabase
-        .from('orders')
-        .update({
-          otp_log: otp,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', orderId);
-
-      if (err) throw err;
-      fetchOrders();
-    } catch (err: any) {
-      setError(err.message);
-    }
+  const handleBookDelivery = (order: Order) => {
+    setSelectedOrder(order);
+    setShowDeliveryModal(true);
   };
 
   const filteredOrders =
@@ -96,349 +116,283 @@ export default function OrdersTab() {
 
   const statusFlow = ['pending', 'preparing', 'ready', 'out_for_delivery', 'delivered'];
 
-  const statusIcons: { [key: string]: any } = {
-    pending: Clock,
-    preparing: ChefHat,
-    ready: CheckCircle,
-    out_for_delivery: Truck,
-    delivered: CheckCircle,
-    cancellation_requested: AlertCircle,
-    refund_processed: CheckCircle,
-  };
-
   const statusColors: { [key: string]: string } = {
-    pending: 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30',
+    pending: 'bg-amber-900/20 text-amber-500 border-amber-500/30',
     preparing: 'bg-blue-900/20 text-blue-400 border-blue-500/30',
     ready: 'bg-green-900/20 text-green-400 border-green-500/30',
     out_for_delivery: 'bg-purple-900/20 text-purple-400 border-purple-500/30',
-    delivered: 'bg-green-900/20 text-green-400 border-green-500/30',
+    delivered: 'bg-emerald-900/20 text-emerald-400 border-emerald-500/30',
     cancelled: 'bg-red-900/20 text-red-400 border-red-500/30',
-    cancellation_requested: 'bg-red-900/40 text-red-500 border-red-600 font-bold animate-pulse',
-    refund_processed: 'bg-gray-800 text-gray-400 border-gray-600',
-  };
-
-  const handleBookDelivery = (order: Order) => {
-    setSelectedOrder(order);
-    setShowDeliveryModal(true);
+    cancellation_requested: 'bg-red-600 text-white border-red-600 animate-pulse',
   };
 
   const generateBill = (order: any) => {
-    const doc = new jsPDF();
-    
-    doc.setFontSize(22);
-    doc.setTextColor(234, 88, 12);
-    doc.text("Cecily Restaurant", 105, 20, { align: "center" });
-    
-    doc.setFontSize(11);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Order ID: ${order.id}`, 14, 30);
-    doc.text(`Date & Time: ${new Date(order.created_at).toLocaleString()}`, 14, 36);
-    
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text("Customer Details", 14, 50);
-    doc.setFontSize(11);
-    doc.text(`Name: ${order.customer_name}`, 14, 58);
-    doc.text(`Phone: ${order.phone}`, 14, 66);
-    doc.text(`Delivery Address: ${order.address}`, 14, 74);
-    
-    if (order.otp_log) {
-      doc.setFontSize(14);
-      doc.setTextColor(22, 163, 74);
-      doc.text(`Pickup OTP: ${order.otp_log}`, 14, 88);
-      doc.setTextColor(0, 0, 0);
-    } else {
-      doc.setFontSize(14);
-      doc.setTextColor(150, 150, 150);
-      doc.text(`Pickup OTP: Pending`, 14, 88);
-      doc.setTextColor(0, 0, 0);
-    }
+    try {
+      const doc = new jsPDF();
+      
+      // Header
+      doc.setFontSize(24);
+      doc.setTextColor(212, 175, 55);
+      doc.text("Cecily Restaurant", 105, 22, { align: "center" });
+      
+      doc.setFontSize(10);
+      doc.setTextColor(120, 120, 120);
+      doc.text("MG Road, Vijayawada, Andhra Pradesh", 105, 30, { align: "center" });
+      doc.text("Phone: +91 8977461605", 105, 36, { align: "center" });
+      
+      // Divider
+      doc.setDrawColor(212, 175, 55);
+      doc.setLineWidth(0.5);
+      doc.line(14, 42, 196, 42);
+      
+      // Order Info
+      doc.setFontSize(10);
+      doc.setTextColor(60, 60, 60);
+      doc.text(`Invoice #: ${order.id.slice(0, 8).toUpperCase()}`, 14, 52);
+      doc.text(`Date: ${new Date(order.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`, 14, 58);
+      doc.text(`Time: ${new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`, 14, 64);
+      
+      doc.text(`Customer: ${order.customer_name}`, 110, 52);
+      doc.text(`Phone: ${order.phone}`, 110, 58);
+      doc.text(`Status: ${order.order_status.replace(/_/g, ' ').toUpperCase()}`, 110, 64);
 
-    const tableData: any[] = [];
-    let subtotal = 0;
-    
-    if (order.items && Array.isArray(order.items)) {
-      order.items.forEach((item: any) => {
+      // Items Table
+      const tableData = (order.items || []).map((item: any) => {
         const price = typeof item.price === 'string' ? parseFloat(item.price) : item.price;
-        const totalItem = price * item.quantity;
-        subtotal += totalItem;
-        tableData.push([item.name, item.quantity, `Rs. ${price.toFixed(2)}`, `Rs. ${totalItem.toFixed(2)}`]);
+        return [
+          item.name, 
+          String(item.quantity), 
+          `Rs. ${price.toFixed(2)}`, 
+          `Rs. ${(price * item.quantity).toFixed(2)}`
+        ];
       });
-    }
-    
-    const gst = subtotal * 0.05;
-    const platformFee = 10.00;
-    const grandTotal = subtotal + gst + platformFee;
-    
-    // @ts-ignore
-    doc.autoTable({
-      startY: 96,
-      head: [['Item', 'Qty', 'Unit Price', 'Total']],
-      body: tableData,
-      theme: 'striped',
-      headStyles: { fillColor: [234, 88, 12], textColor: 255 },
-      styles: { fontSize: 10 }
-    });
-    
-    // @ts-ignore
-    const finalY = doc.lastAutoTable?.finalY || 100;
-    
-    doc.setFontSize(11);
-    doc.text(`Subtotal : Rs. ${subtotal.toFixed(2)}`, 130, finalY + 12);
-    doc.text(`Food GST (5%) : Rs. ${gst.toFixed(2)}`, 130, finalY + 20);
-    doc.text(`Platform Fee : Rs. ${platformFee.toFixed(2)}`, 130, finalY + 28);
-    
-    doc.setFontSize(14);
-    doc.setTextColor(234, 88, 12);
-    doc.text(`Grand Total : Rs. ${grandTotal.toFixed(2)}`, 130, finalY + 40);
-    
-    // Watermark / Footer note
-    doc.setFontSize(9);
-    doc.setTextColor(150, 150, 150);
-    doc.text("Packaging fees excluded from this bill computationally.", 105, 280, { align: "center" });
 
-    doc.save(`Invoice_${order.id.slice(0, 8)}.pdf`);
+      const subtotal = (order.items || []).reduce((sum: number, item: any) => {
+        const price = typeof item.price === 'string' ? parseFloat(item.price) : item.price;
+        return sum + (price * item.quantity);
+      }, 0);
+
+      const gst = subtotal * 0.05;
+      const packagingFee = 15;
+      const deliveryCharge = 30;
+
+      const result = autoTable(doc, {
+        startY: 72,
+        head: [['Item', 'Qty', 'Price', 'Total']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: [212, 175, 55], textColor: [0, 0, 0], fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 4 },
+        columnStyles: { 0: { cellWidth: 80 } },
+      });
+
+      // Get Y position after the table
+      const finalY = (result as any)?.finalY || (doc as any).lastAutoTable?.finalY || 140;
+
+      // Bill Summary
+      const summaryY = finalY + 10;
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 100);
+      
+      doc.text("Subtotal:", 130, summaryY);
+      doc.text(`Rs. ${subtotal.toFixed(2)}`, 196, summaryY, { align: "right" });
+      
+      doc.text("GST (5%):", 130, summaryY + 6);
+      doc.text(`Rs. ${gst.toFixed(2)}`, 196, summaryY + 6, { align: "right" });
+      
+      doc.text("Packaging Fee:", 130, summaryY + 12);
+      doc.text(`Rs. ${packagingFee.toFixed(2)}`, 196, summaryY + 12, { align: "right" });
+      
+      doc.text("Delivery (Rapido):", 130, summaryY + 18);
+      doc.text(`Rs. ${deliveryCharge.toFixed(2)}`, 196, summaryY + 18, { align: "right" });
+
+      doc.setDrawColor(200, 200, 200);
+      doc.line(130, summaryY + 22, 196, summaryY + 22);
+
+      doc.setFontSize(12);
+      doc.setTextColor(212, 175, 55);
+      doc.text("Grand Total:", 130, summaryY + 30);
+      doc.text(`Rs. ${order.total_price.toFixed(2)}`, 196, summaryY + 30, { align: "right" });
+
+      // Footer
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text("Thank you for ordering from Cecily Restaurant!", 105, 280, { align: "center" });
+
+      doc.save(`Cecily_Invoice_${order.id.slice(0, 8)}.pdf`);
+    } catch (err) {
+      console.error('Invoice generation failed:', err);
+      alert('Failed to generate invoice. Please try again.');
+    }
   };
 
   return (
-    <>
+    <div className="space-y-8 animate-in fade-in duration-700">
       <DeliveryModal
         order={selectedOrder}
         isOpen={showDeliveryModal}
         onClose={() => setShowDeliveryModal(false)}
       />
-      <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white mb-4">Orders Management</h2>
-        <div className="flex items-center gap-4 flex-wrap">
+
+      {/* Header & Status */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white/5 border border-white/10 p-8 rounded-3xl backdrop-blur-xl">
+        <div>
+          <h2 className="text-3xl font-black text-white tracking-tight mb-2">Order Command Center</h2>
+          <div className="flex items-center gap-3">
+            <div className={`w-2 h-2 rounded-full ${realtimeStatus === 'connected' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500 animate-pulse'}`}></div>
+            <span className="text-brand-cream/40 text-xs font-bold uppercase tracking-widest">
+              {realtimeStatus === 'connected' ? 'Live Sync Active' : 'Connecting to Live Feed...'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm"
+            className="bg-brand-dark border border-white/10 rounded-full px-6 py-2.5 text-brand-cream text-xs font-bold uppercase tracking-widest focus:border-brand-gold outline-none transition-all"
           >
-            <option value="all">All Orders</option>
-            <option value="pending">Pending</option>
-            <option value="preparing">Preparing</option>
-            <option value="ready">Ready</option>
-            <option value="out_for_delivery">Out for Delivery</option>
-            <option value="delivered">Delivered</option>
+            <option value="all">All Lifecycles</option>
+            {statusFlow.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
-          <span className="text-gray-400 text-sm">Total: {filteredOrders.length}</span>
+          <button 
+            onClick={() => { setLoading(true); fetchOrders(); }}
+            className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-brand-gold transition-all"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 mb-6 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-red-200 text-sm">{error}</p>
+        <div className="bg-red-900/20 border border-red-500/30 rounded-2xl p-4 flex items-center gap-3 text-red-400">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <p className="text-sm font-medium">{error}</p>
         </div>
       )}
 
       {loading ? (
-        <div className="text-center text-gray-400 py-12">Loading orders...</div>
+        <div className="flex flex-col items-center justify-center py-32 space-y-4">
+          <div className="w-12 h-12 border-4 border-brand-gold/20 border-t-brand-gold rounded-full animate-spin"></div>
+          <p className="text-brand-cream/40 font-bold uppercase tracking-widest text-xs">Fetching Orders...</p>
+        </div>
       ) : filteredOrders.length === 0 ? (
-        <div className="text-center text-gray-400 py-12">No orders found</div>
+        <div className="text-center py-32 bg-white/5 border border-dashed border-white/10 rounded-3xl">
+          <Package className="w-12 h-12 mx-auto text-brand-cream/10 mb-4" />
+          <p className="text-brand-cream/40 font-bold uppercase tracking-widest text-xs">No active orders in this view</p>
+        </div>
       ) : (
-        <div className="space-y-4">
-          {filteredOrders.map((order: any) => {
-            const StatusIcon = statusIcons[order.order_status] || Clock;
-            
-            // Unfulfilled logic: Not delivered, not cancelled, and no OTP logged
-            const isUnfulfilled = 
-              !['delivered', 'cancelled', 'refund_processed', 'cancellation_requested'].includes(order.order_status) && 
-              !order.otp_log;
-
-            const isCancelReq = order.order_status === 'cancellation_requested';
-
+        <div className="grid gap-6">
+          {filteredOrders.map((order) => {
             return (
               <div 
                 key={order.id} 
-                className={`bg-[#1A1A1A] rounded-xl border p-6 transition-all relative ${
-                  isCancelReq 
-                    ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)]'
-                    : isUnfulfilled 
-                      ? 'border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)] animate-[pulse_4s_cubic-bezier(0.4,0,0.6,1)_infinite]' 
-                      : 'border-[#CA8A04]/20'
-                }`}
+                className="group bg-white/5 border border-white/10 rounded-3xl p-8 transition-all duration-500 hover:bg-white/[0.07] hover:border-brand-gold/30 relative overflow-hidden"
               >
-                {isCancelReq && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-widest shadow-lg shadow-red-600/50 animate-bounce">
-                    Action Required
-                  </div>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <p className="text-gray-400 text-sm">Order ID</p>
-                    <p className="text-white font-mono text-sm break-all">{order.id}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-400 text-sm">Customer</p>
-                    <p className="text-white font-medium">{order.customer_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-400 text-sm">Total</p>
-                    <p className="text-orange-400 font-bold">${order.total_price.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-400 text-sm">Time</p>
-                    <p className="text-white text-sm">
-                      {new Date(order.created_at).toLocaleTimeString()}
-                    </p>
-                  </div>
-                </div>
+                {/* Background Glow */}
+                <div className="absolute top-0 right-0 w-64 h-64 bg-brand-gold/5 blur-[100px] rounded-full -mr-32 -mt-32 pointer-events-none"></div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 py-4 border-y border-gray-700">
-                  <div className="flex items-start gap-2">
-                    <Phone className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-gray-400 text-xs">Phone</p>
-                      <p className="text-white text-sm">{order.phone}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-gray-400 text-xs">Delivery Address</p>
-                      <p className="text-white text-sm">{order.address}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Order Items */}
-                <div className="mb-4">
-                  <p className="text-gray-300 text-sm font-semibold mb-2">Items:</p>
-                  <div className="space-y-1">
-                    {order.items.map((item: any, idx: number) => (
-                      <div key={idx} className="text-gray-300 text-sm flex justify-between">
-                        <span>
-                          {item.name} × {item.quantity}
-                        </span>
-                        <span className="text-orange-400">
-                          ${((typeof item.price === 'string' ? parseFloat(item.price) : item.price) * item.quantity).toFixed(2)}
-                        </span>
+                <div className="flex flex-col lg:flex-row justify-between gap-8 relative z-10">
+                  <div className="flex-1 space-y-6">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div className={`px-4 py-1.5 rounded-full border text-[10px] font-black tracking-[0.2em] uppercase shadow-lg ${statusColors[order.order_status]}`}>
+                        {order.order_status.replace('_', ' ')}
                       </div>
-                    ))}
+                      <span className="text-brand-cream/20 font-mono text-xs">#{order.id.slice(0, 8)}...</span>
+                      <span className="text-brand-cream/40 text-xs font-bold uppercase tracking-widest">
+                        {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div>
+                        <p className="text-brand-cream/40 text-[10px] font-black uppercase tracking-widest mb-1">Customer</p>
+                        <p className="text-xl font-bold text-white tracking-tight">{order.customer_name}</p>
+                        <p className="text-brand-cream/60 text-sm mt-1 flex items-center gap-2">
+                          <Phone className="w-3.5 h-3.5 text-brand-gold" /> {order.phone}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-brand-cream/40 text-[10px] font-black uppercase tracking-widest mb-1">Destination</p>
+                        <p className="text-white text-sm font-medium leading-relaxed flex items-start gap-2">
+                          <MapPin className="w-4 h-4 text-brand-gold shrink-0 mt-0.5" />
+                          {order.address}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-brand-dark/40 rounded-2xl p-4 border border-white/5">
+                      <div className="space-y-3">
+                        {order.items.map((item: any, idx: number) => (
+                          <div key={idx} className="flex justify-between items-center text-sm">
+                            <span className="text-brand-cream/80 font-medium">{item.name} <span className="text-brand-gold mx-2">×</span> {item.quantity}</span>
+                            <span className="text-brand-cream font-bold">₹{(item.price * item.quantity).toFixed(2)}</span>
+                          </div>
+                        ))}
+                        <div className="pt-3 border-t border-white/5 flex justify-between items-center">
+                          <span className="text-brand-cream/40 text-[10px] font-black uppercase tracking-widest">Total Bill</span>
+                          <span className="text-2xl font-black text-brand-gold">₹{order.total_price.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                {/* Status Management */}
-                <div className="flex flex-wrap gap-2 items-center mb-4">
-                  <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-sm ${statusColors[order.order_status] || statusColors.pending}`}>
-                    <StatusIcon className="w-4 h-4" />
-                    <span className="capitalize">{order.order_status.replace('_', ' ')}</span>
-                  </div>
-
-                  <div className="flex-1"></div>
-
-                  <div className="flex gap-2">
-                    {/* Action Center - Smart Ready Button */}
-                    {order.order_status === 'preparing' && (
-                      <button
-                        onClick={() => updateOrderStatus(order.id, 'ready')}
-                        className="px-4 py-1.5 ml-4 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded shadow-[0_0_15px_rgba(234,88,12,0.6)] flex items-center gap-2 animate-bounce uppercase tracking-wide text-xs transition"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                        Mark Ready & Notify
-                      </button>
-                    )}
+                  <div className="lg:w-72 flex flex-col gap-3">
+                    <p className="text-brand-cream/40 text-[10px] font-black uppercase tracking-widest mb-1">Logistics & Service</p>
                     
-                    {/* Standard Status Buttons (Only render if not 'preparing' to avoid duplication with smart button) */}
-                    {order.order_status !== 'preparing' && statusFlow.map((status, idx) => {
-                      const currentIdx = statusFlow.indexOf(order.order_status);
-                      return (
+                    {/* OTP Display */}
+                    {order.otp_log ? (
+                      <div className="bg-emerald-900/20 border border-emerald-500/30 p-4 rounded-2xl group/otp relative">
+                        <p className="text-emerald-500 text-[10px] font-black uppercase tracking-widest mb-1">Pickup OTP</p>
+                        <p className="text-3xl font-black text-emerald-400 tracking-[0.3em]">{order.otp_log}</p>
+                      </div>
+                    ) : order.delivery_requested ? (
+                      <div className="bg-brand-gold/10 border border-brand-gold/20 p-4 rounded-2xl animate-pulse">
+                        <p className="text-brand-gold text-[10px] font-black uppercase tracking-widest mb-1">Waiting for OTP</p>
+                        <div className="h-8 w-full bg-brand-gold/5 rounded-md"></div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleBookDelivery(order)}
+                        className="flex flex-col items-center justify-center p-4 bg-brand-gold text-brand-dark rounded-2xl font-black uppercase text-[10px] tracking-widest hover:scale-105 transition-all shadow-gold-glow"
+                      >
+                        <Truck className="w-5 h-5 mb-2" />
+                        Delivery
+                      </button>
+                      <button
+                        onClick={() => generateBill(order)}
+                        className="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/10 text-brand-cream rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-white/10 transition-all"
+                      >
+                        <Download className="w-5 h-5 mb-2" />
+                        Invoice
+                      </button>
+                    </div>
+
+                    <div className="mt-4 flex gap-2 overflow-x-auto scrollbar-hide pb-2">
+                      {statusFlow.map((status) => (
                         <button
                           key={status}
                           onClick={() => updateOrderStatus(order.id, status)}
-                          disabled={idx < currentIdx}
-                          className={`px-2 py-1 text-xs rounded transition capitalize ${
-                            idx <= currentIdx
-                              ? idx === currentIdx
-                                ? 'bg-orange-600 text-white'
-                                : 'bg-gray-600 text-gray-300'
-                              : 'bg-gray-700 hover:bg-gray-600 text-gray-400'
+                          disabled={order.order_status === status}
+                          className={`px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                            order.order_status === status 
+                              ? 'bg-brand-gold text-brand-dark' 
+                              : 'bg-white/5 text-brand-cream/40 hover:bg-white/10'
                           }`}
                         >
                           {status.replace('_', ' ')}
                         </button>
-                      );
-                    })}
-                    
-                    {/* ADMIN ACTION: Cancellation Requested Workflow */}
-                    {order.order_status === 'cancellation_requested' && (
-                      <div className="flex gap-2 ml-4">
-                        <button
-                          onClick={() => updateOrderStatus(order.id, 'refund_processed')}
-                          className="px-4 py-1.5 text-xs font-bold rounded bg-green-600 hover:bg-green-500 text-white shadow-[0_0_10px_rgba(22,163,74,0.4)] transition uppercase tracking-wide"
-                        >
-                          Approve & Refund
-                        </button>
-                        <button
-                          onClick={() => updateOrderStatus(order.id, 'preparing')}
-                          className="px-4 py-1.5 text-xs font-bold rounded bg-red-900/50 hover:bg-red-800 text-red-200 border border-red-700 transition uppercase tracking-wide"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                    
-                    {/* OTP BAR */}
-                    <div className="flex items-center gap-2 ml-4 relative">
-                      <input 
-                        type="text" 
-                        placeholder={order.otp_log ? `OTP: ${order.otp_log}` : "Delivery OTP"}
-                        maxLength={6}
-                        value={otpInputs[order.id] || ''}
-                        onChange={(e) => setOtpInputs({ ...otpInputs, [order.id]: e.target.value })}
-                        disabled={!!order.otp_log}
-                        className={`w-28 px-3 py-1.5 text-sm rounded ${
-                          order.otp_log 
-                            ? 'bg-green-900/20 text-green-400 border border-green-500/30' 
-                            : 'bg-gray-900 text-white border border-gray-700 focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]'
-                        } outline-none transition uppercase`}
-                      />
-                      {!order.otp_log && (
-                        <button
-                          onClick={() => saveOtp(order.id)}
-                          className="px-3 py-1.5 text-xs font-bold rounded bg-[#D4AF37] hover:bg-[#FFD700] text-gray-900 transition"
-                        >
-                          Save
-                        </button>
-                      )}
+                      ))}
                     </div>
-
-                    <button
-                      onClick={() => handleBookDelivery(order)}
-                      className="px-3 py-1.5 text-xs font-bold ml-2 rounded transition bg-[#222222] border border-[#CA8A04] hover:bg-[#333333] text-[#FFD700] flex items-center gap-2"
-                    >
-                      <Package className="w-3.5 h-3.5" />
-                      Book Delivery
-                    </button>
-
-                    <button
-                      onClick={() => generateBill(order)}
-                      className="px-3 py-1.5 text-xs font-bold ml-2 rounded transition bg-gray-800 border border-gray-600 hover:bg-gray-700 text-white flex items-center gap-2"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      Download Bill
-                    </button>
                   </div>
                 </div>
-
-                {/* Logistics Status */}
-                {order.delivery_requested && (
-                  <div className="bg-emerald-900/20 border border-emerald-500/50 rounded-lg p-3 text-sm mt-4 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
-                    <p className="text-emerald-400 font-bold flex items-center gap-2">
-                      <Truck className="w-5 h-5" />
-                      Logistics Status: User successfully clicked "Call Rapido" and delivery is en route! 
-                    </p>
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
       )}
-      </div>
-    </>
+    </div>
   );
 }

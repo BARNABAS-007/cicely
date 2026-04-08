@@ -2,33 +2,150 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer utilities {
-  .glass {
-    @apply bg-white/10 backdrop-blur-md border border-white/20;
+@layer base {
+  body {
+    @apply bg-brand-dark text-brand-cream selection:bg-brand-gold/30 antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', serif;
+  }
+}
+
+@layer components {
+  .glass-premium {
+    @apply bg-white/5 backdrop-blur-2xl border border-white/10 shadow-soft-reflection transition-all duration-300;
   }
   
-  .glass-dark {
-    @apply bg-navy-900/40 backdrop-blur-xl border border-white/10;
+  .glass-gold {
+    @apply bg-brand-gold/5 backdrop-blur-xl border border-brand-gold/20 shadow-gold-glow;
   }
 
-  .text-glow {
-    text-shadow: 0 0 10px rgba(255, 95, 31, 0.5);
+  /* 🔮 Glassmorphism for navigation and cards */
+  .glass-nav {
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
 
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
+  .glass-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
   }
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+
+  .warm-shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 180, 87, 0.05) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 8s linear infinite;
+  }
+
+  .wood-grain {
+    @apply bg-[radial-gradient(circle_at_center,_rgba(45,30,18,0.1)_0.5px,_transparent_0.5px)] bg-[length:24px_24px];
+    background-image: 
+      radial-gradient(circle at 100% 100%, rgba(45,30,18,0.05), transparent 80%),
+      radial-gradient(circle at 0% 0%, rgba(45,30,18,0.05), transparent 80%);
+  }
+
+  /* ✨ Material Realism - Wood Bloom */
+  .wood-bloom {
+    background: radial-gradient(circle at top right, rgba(45,30,18,0.2), transparent 40%),
+                radial-gradient(circle at bottom left, rgba(45,18,12,0.15), transparent 50%);
+  }
+
+  /* 💡 Shadow Bloom - mimicks warm table lighting */
+  .shadow-bloom {
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5), 
+                0 0 40px -15px rgba(255,180,87,0.1);
+    @apply transition-shadow duration-300;
+  }
+
+  .premium-hover {
+    @apply hover:-translate-y-1 hover:shadow-bloom transition-all duration-300 ease-out;
+  }
+
+  /* 🔘 Soft Press Animation */
+  .btn-soft-press {
+    @apply active:scale-95 transition-all duration-150;
+  }
+
+  /* 🌟 Gold-Amber Gradient Button */
+  .btn-gold-amber {
+    background: linear-gradient(135deg, #D4AF37, #FFBF00);
+    color: #000000;
+    font-weight: 900;
+  }
+  .btn-gold-amber:hover {
+    background: linear-gradient(135deg, #FFBF00, #D4AF37);
+    box-shadow: 0 0 30px rgba(212, 175, 55, 0.5);
+  }
+
+  /* 🍃 Spring bounce animation for buttons */
+  .spring-bounce {
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .spring-bounce:active {
+    transform: scale(0.88);
   }
 }
 
-@keyframes glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(255, 95, 31, 0.5); }
-  50% { box-shadow: 0 0 40px rgba(255, 95, 31, 0.8); }
+@layer utilities {
+  .text-glow-gold {
+    text-shadow: 0 0 12px rgba(255, 180, 87, 0.4);
+  }
+
+  .bg-ambient-warm {
+    background: radial-gradient(circle at 50% -20%, rgba(255, 180, 87, 0.08), transparent 70%);
+  }
+
+  /* 🪄 Soft Glow Focus */
+  .focus-gold-glow {
+    @apply focus:ring-4 focus:ring-brand-gold/10 focus:border-brand-gold/40 transition-all duration-300;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 }
 
-.animate-glow {
-  animation: glow 2s ease-in-out infinite;
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+@keyframes spring-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.85); }
+  60% { transform: scale(1.08); }
+  80% { transform: scale(0.97); }
+  100% { transform: scale(1); }
+}
+
+.animate-spring-pop {
+  animation: spring-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 🕯️ Ambient Bloobs */
+.bloob {
+  @apply fixed rounded-full blur-[120px] opacity-20 pointer-events-none;
+  background: radial-gradient(circle, rgba(255,180,87,0.4), transparent 70%);
+}
+
+/* Safe area padding for mobile bottom nav */
+.pb-safe-bottom {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
 }

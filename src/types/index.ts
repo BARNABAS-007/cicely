@@ -45,8 +45,9 @@ export interface Order {
   address: string;
   items: CartItem[];
   total_price: number;
-  order_status: 'pending' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled';
+  order_status: 'pending' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'cancellation_requested';
   delivery_requested: boolean;
+  otp_log?: string;
   created_at: string;
   updated_at: string;
 }

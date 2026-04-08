@@ -18,12 +18,13 @@ import Reservation from './components/Reservation';
 import Contact from './components/Contact';
 import Footer from './components/Footer';
 import Cart from './components/Cart';
+import BottomNavigation from './components/BottomNavigation';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth();
 
   if (loading) {
-    return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">Loading...</div>;
+    return <div className="min-h-screen bg-brand-dark flex items-center justify-center text-white">Loading...</div>;
   }
 
   return session ? <>{children}</> : <Navigate to="/login" />;
@@ -31,7 +32,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function Home() {
   return (
-    <div className="min-h-screen bg-navy-950">
+    <div className="min-h-screen bg-brand-dark overflow-x-hidden pb-safe-bottom">
       <Header />
       <ModernMenu />
       <About />
@@ -42,6 +43,7 @@ function Home() {
       <Contact />
       <Footer />
       <Cart />
+      <BottomNavigation />
     </div>
   );
 }
@@ -51,7 +53,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <CartProvider>
-          <Suspense fallback={<div className="min-h-screen bg-gray-900 flex items-center justify-center text-orange-500 font-bold">Loading Cicely...</div>}>
+          <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center text-brand-gold font-bold font-serif text-2xl">Loading Cicely...</div>}>
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/setup" element={<Setup />} />
